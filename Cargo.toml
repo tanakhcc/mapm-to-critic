@@ -1,0 +1,13 @@
+[package]
+name = "mapm-to-critic"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.5.60", features = ["derive"] }
+critic-format  = {path = "../critic-format" }
+itertools = "0.14.0"
+quick-xml = { version = "0.38.0", features = ["serialize"] }
+serde = "1.0.228"
+serde_json = "1.0.149"
+sqlx = { version = "0.8.2", default-features = false, features = ["migrate", "time", "sqlite", "postgres", "runtime-tokio-rustls", "macros"] }
