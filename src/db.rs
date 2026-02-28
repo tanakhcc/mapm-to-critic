@@ -84,6 +84,7 @@ async fn insert_chaper(
     versification_scheme_id: i64,
     language_id: i64,
 ) -> Result<(), sqlx::Error> {
+    println!("Now inserting new chapter: {:?}", chapter[0]);
     // calculate the right splitting behaviour
     let chunk_size = divide_into_good_chunks(
         chapter
@@ -100,7 +101,11 @@ async fn insert_chaper(
         .into_iter()
     {
         let mut verses = Vec::with_capacity(2 * chunk_size as usize);
-        let destreamed = chunk.into_iter().collect::<Result<critic_format::normalized::Text, critic_format::destream::StreamError>>().expect("Known trivial structure to destream");
+        let initial_page_chunk =
+            critic_format::streamed::Block::Break(critic_format::streamed::BreakType::Page(
+                format!("MAPM from verse {starting_verse_id}"),
+            ));
+        let destreamed = core::iter::once(initial_page_chunk).chain(chunk.into_iter()).collect::<Result<critic_format::normalized::Text, critic_format::destream::StreamError>>().expect("Known trivial structure to destream");
         for block in &destreamed.pages[0].columns[0].lines[0].blocks {
             if let critic_format::normalized::InlineBlock::Anchor(a) = block {
                 verses.push((a.anchor_id.clone(), current_verse));
@@ -128,6 +133,7 @@ async fn insert_book(
     versification_scheme_id: i64,
     language_id: i64,
 ) -> Result<(), sqlx::Error> {
+    println!("Now inserting book {:?}", book.name);
     let mut current_verse = starting_verse_id;
     for chapter in book.chapters {
         insert_chaper(
@@ -143,24 +149,30 @@ async fn insert_book(
     Ok(())
 }
 
-async fn insert_versification_scheme(pool: &Pool<Postgres>) -> Result<i64, sqlx::Error> {
+async fn insert_versification_scheme(pool: &Pool<Postgres>) -> Result<Option<i64>, sqlx::Error> {
     Ok(sqlx::query!(
-        "INSERT INTO versification_scheme (full_name, shorthand) VALUES ('Masoretic', 'MT') RETURNING id;"
+        "WITH e AS (INSERT INTO versification_scheme (full_name, shorthand) VALUES ('Masoretic', 'MT') ON CONFLICT DO NOTHING RETURNING id)
+        SELECT * FROM e UNION SELECT id FROM versification_scheme WHERE full_name = 'Masoretic' and shorthand = 'MT';"
     )
     .fetch_one(&*pool)
     .await?.id)
 }
 
-async fn insert_language(pool: &Pool<Postgres>) -> Result<i64, sqlx::Error> {
-    Ok(sqlx::query!("INSERT INTO language (name, equality_alphabet) VALUES ('hbo', 'אבגדהוזחטיךכלםמןנסעףפץצקרשת') RETURNING id;").fetch_one(&*pool).await?.id)
+async fn insert_language(pool: &Pool<Postgres>) -> Result<Option<i64>, sqlx::Error> {
+    Ok(sqlx::query!(
+        "WITH e AS (INSERT INTO language (name, equality_alphabet) VALUES ('hbo', 'אבגדהוזחטיךכלםמןנסעףפץצקרשת') ON CONFLICT DO NOTHING RETURNING id)
+        SELECT * FROM e UNION SELECT id FROM language WHERE name = 'hbo';"
+    )
+    .fetch_one(&*pool)
+    .await?.id)
 }
 
 /// Insert the complete corpus into the db
 pub async fn insert(pool: &Pool<Postgres>, corpus: Corpus) -> Result<(), sqlx::Error> {
     // insert the versification scheme
-    let versification_scheme_id = insert_versification_scheme(pool).await?;
+    let versification_scheme_id = insert_versification_scheme(pool).await?.unwrap();
     // insert the language
-    let language_id = insert_language(pool).await?;
+    let language_id = insert_language(pool).await?.unwrap();
 
     for book in corpus.books {
         insert_book(pool, book.0, book.1, versification_scheme_id, language_id).await?;
