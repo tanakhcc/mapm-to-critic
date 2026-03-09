@@ -77,7 +77,7 @@ fn divide_into_good_chunks(number_of_verses: u8) -> u8 {
     }
 }
 
-async fn insert_chaper(
+async fn insert_chapter(
     pool: &Pool<Postgres>,
     starting_verse_id: i64,
     chapter: Vec<critic_format::streamed::Block>,
@@ -136,7 +136,7 @@ async fn insert_book(
     println!("Now inserting book {:?}", book.name);
     let mut current_verse = starting_verse_id;
     for chapter in book.chapters {
-        insert_chaper(
+        insert_chapter(
             pool,
             current_verse.into(),
             chapter.1,
