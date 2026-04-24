@@ -5,6 +5,7 @@ use sqlx::{Pool, Postgres};
 
 use crate::{Book, Corpus};
 
+/// Contains content as XML String and an iterator of verse-name - verse id
 struct Chunk<I>
 where
     I: IntoIterator<Item = (String, i64)>,
@@ -68,12 +69,12 @@ async fn insert_verses(
 
 /// Given a chapter with `number_of_verses` verses, chunk it into this length of chunk
 fn divide_into_good_chunks(number_of_verses: usize) -> usize {
-    if number_of_verses % 7 >= 3 || number_of_verses % 7 == 0 {
-        7
-    } else if number_of_verses % 6 >= 3 || number_of_verses % 6 == 0 {
-        6
+    if number_of_verses % 11 >= 3 || number_of_verses % 11 == 0 {
+        11
+    } else if number_of_verses % 10 >= 3 || number_of_verses % 10 == 0 {
+        10
     } else {
-        5
+        9
     }
 }
 
@@ -96,27 +97,21 @@ async fn insert_chapter(
 
     // the verse markup is always one block long, the content one further block
     for chunk in &chapter.into_iter().chunks(2 * chunk_size) {
-        let mut verses = Vec::with_capacity(2 * chunk_size);
-        let initial_page_chunk =
-            critic_format::streamed::Block::Break(critic_format::streamed::BreakType::Page(
-                format!("MAPM from verse {starting_verse_id}"),
-            ));
-        let destreamed = core::iter::once(initial_page_chunk).chain(chunk.into_iter()).collect::<Result<critic_format::normalized::Text, critic_format::destream::StreamError>>().expect("Known trivial structure to destream");
-        for block in &destreamed.pages[0].columns[0].lines[0].blocks {
-            if let critic_format::normalized::InlineBlock::Anchor(a) = block {
-                verses.push((a.anchor_id.clone(), current_verse));
-                current_verse += 1;
-            }
-        }
-        let denormed: critic_format::schema::Text = destreamed
-            .try_into()
-            .expect("Known trivial structure to denorm");
-        let sr = quick_xml::se::to_string_with_root("body", &denormed)
-            .expect("Known trivial structor to serialize");
-        let final_chunk = Chunk {
-            content: sr,
-            verses,
-        };
+        let mut verses = Vec::with_capacity(chunk_size);
+        let content = critic_format::page_to_xml(
+            // this is inside a map for the side effect to avoid cloning the blocks
+            chunk.map(|block| {
+                if let critic_format::streamed::Block::Anchor(ref a) = block {
+                    verses.push((a.anchor_id.clone(), current_verse));
+                    current_verse += 1;
+                }
+                block
+            }),
+            format!("MAPM from verse {starting_verse_id}"),
+        )
+        .expect("Known static structure of Blocks");
+
+        let final_chunk = Chunk { content, verses };
         insert_chunk(pool, final_chunk, versification_scheme_id, language_id).await?;
     }
     Ok(())
